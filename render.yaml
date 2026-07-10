@@ -1,9 +1,10 @@
 services:
   - type: web
-    name: loli-be
+    name: loveroom-be
     runtime: node
     plan: free
     region: oregon
+    repo: https://github.com/AKULANATESH/LoveRoom-BE
     branch: master
     buildCommand: npm install && npm run build
     startCommand: npm run db:deploy && npm run start:prod
