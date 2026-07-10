@@ -8,8 +8,15 @@ export class UserRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(user: AddUserDto): Promise<User> {
+    const usernameBase = user.email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_');
     const newUser = await this.prisma.user.create({
-      data: user, // Ensure that AddUserDto matches UserCreateInput type
+      data: {
+        name: user.name,
+        email: user.email,
+        age: user.age,
+        username: `${usernameBase}_${Date.now()}`,
+        passwordHash: 'legacy-user-no-password',
+      },
     });
     return newUser;
   }

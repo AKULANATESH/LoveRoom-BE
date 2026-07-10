@@ -9,11 +9,168 @@ generator client {
 
 // User model
 model User {
-  id     String  @id @default(cuid())
-  name   String
-  email  String  @unique
-  age    Int
-  orders Order[]
+  id                    String              @id @default(cuid())
+  name                  String
+  email                 String              @unique
+  username              String              @unique
+  passwordHash          String
+  age                   Int                 @default(18)
+  avatarUrl             String?
+  createdAt             DateTime            @default(now())
+  orders                Order[]
+  relationshipsAsUserA  Relationship[]      @relation("RelationshipUserA")
+  relationshipsAsUserB  Relationship[]      @relation("RelationshipUserB")
+  moods                 Mood[]
+  sentActions           EmotionalAction[]   @relation("SentActions")
+  receivedActions       EmotionalAction[]   @relation("ReceivedActions")
+  notificationsReceived Notification[]      @relation("NotificationsReceived")
+  sentInvitations       PartnerInvitation[] @relation("SentInvitations")
+}
+
+model Relationship {
+  id            String              @id @default(cuid())
+  userAId       String
+  userA         User                @relation("RelationshipUserA", fields: [userAId], references: [id])
+  userBId       String
+  userB         User                @relation("RelationshipUserB", fields: [userBId], references: [id])
+  startedAt     DateTime            @default(now())
+  createdAt     DateTime            @default(now())
+  invitations   PartnerInvitation[]
+  moods         Mood[]
+  actions       EmotionalAction[]
+  milestones    Milestone[]
+  notifications Notification[]
+  calendarEvents CalendarEvent[]
+  hourlyTouches  HourlyTouch[]
+  checkIns       PartnerCheckIn[]
+  chatMessages   ChatMessage[]
+
+  @@unique([userAId, userBId])
+}
+
+model ChatMessage {
+  id             String          @id @default(cuid())
+  relationshipId String
+  relationship   Relationship    @relation(fields: [relationshipId], references: [id])
+  senderId       String
+  type           ChatMessageType @default(TEXT)
+  text           String?
+  imageData      String?
+  caption        String?
+  viewOnce       Boolean         @default(false)
+  openedAt       DateTime?
+  readAt         DateTime?
+  reaction       String?
+  createdAt      DateTime        @default(now())
+
+  @@index([relationshipId, createdAt])
+}
+
+enum ChatMessageType {
+  TEXT
+  IMAGE
+  SNAP
+}
+
+model CalendarEvent {
+  id             String       @id @default(cuid())
+  relationshipId String
+  relationship   Relationship @relation(fields: [relationshipId], references: [id])
+  createdById    String
+  title          String
+  date           DateTime
+  location       String?
+  note           String?
+  createdAt      DateTime     @default(now())
+}
+
+model PartnerCheckIn {
+  id             String       @id @default(cuid())
+  relationshipId String
+  relationship   Relationship @relation(fields: [relationshipId], references: [id])
+  userId         String
+  latitude       Float?
+  longitude      Float?
+  accuracy       Float?
+  locationLabel  String?
+  isSharing      Boolean      @default(false)
+  updatedAt      DateTime     @default(now())
+
+  @@unique([relationshipId, userId])
+}
+
+model HourlyTouch {
+  id             String       @id @default(cuid())
+  relationshipId String
+  relationship   Relationship @relation(fields: [relationshipId], references: [id])
+  userId         String
+  touchDate      DateTime     @db.Date
+  hour           Int
+  createdAt      DateTime     @default(now())
+
+  @@unique([relationshipId, userId, touchDate, hour])
+}
+
+model PartnerInvitation {
+  id              String           @id @default(cuid())
+  relationshipId  String?
+  relationship    Relationship?    @relation(fields: [relationshipId], references: [id])
+  inviterId       String
+  inviter         User             @relation("SentInvitations", fields: [inviterId], references: [id])
+  inviterEmail    String
+  inviteeEmail    String?
+  inviteeUsername String?
+  code            String           @unique
+  token           String           @unique
+  status          InvitationStatus @default(PENDING)
+  createdAt       DateTime         @default(now())
+  acceptedAt      DateTime?
+}
+
+model Mood {
+  id             String       @id @default(cuid())
+  relationshipId String
+  relationship   Relationship @relation(fields: [relationshipId], references: [id])
+  userId         String
+  user           User         @relation(fields: [userId], references: [id])
+  mood           MoodType
+  note           String?
+  createdAt      DateTime     @default(now())
+}
+
+model EmotionalAction {
+  id             String              @id @default(cuid())
+  relationshipId String
+  relationship   Relationship        @relation(fields: [relationshipId], references: [id])
+  senderId       String
+  sender         User                @relation("SentActions", fields: [senderId], references: [id])
+  receiverId     String
+  receiver       User                @relation("ReceivedActions", fields: [receiverId], references: [id])
+  type           EmotionalActionType
+  message        String?
+  createdAt      DateTime            @default(now())
+}
+
+model Milestone {
+  id             String       @id @default(cuid())
+  relationshipId String
+  relationship   Relationship @relation(fields: [relationshipId], references: [id])
+  title          String
+  date           DateTime
+  createdAt      DateTime     @default(now())
+}
+
+model Notification {
+  id             String           @id @default(cuid())
+  relationshipId String
+  relationship   Relationship     @relation(fields: [relationshipId], references: [id])
+  receiverId     String
+  receiver       User             @relation("NotificationsReceived", fields: [receiverId], references: [id])
+  type           NotificationType
+  title          String
+  body           String
+  isRead         Boolean          @default(false)
+  createdAt      DateTime         @default(now())
 }
 
 model Product {
@@ -50,4 +207,34 @@ enum ProductType {
   ACCESSORIES
   HOMENEEDS
   DOMESTICNEEDS
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+}
+
+enum MoodType {
+  HAPPY
+  SAD
+  EXCITED
+  STRESSED
+  MISSING_YOU
+  SLEEPY
+}
+
+enum EmotionalActionType {
+  HUG
+  KISS
+  MISS_YOU
+  THINKING_OF_YOU
+}
+
+enum NotificationType {
+  ACTION
+  MOOD
+  ANNIVERSARY
+  MEMORY
+  SYSTEM
 }
