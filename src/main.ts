@@ -14,6 +14,8 @@ async function bootstrap() {
   const defaultOrigins = [
     'http://localhost:5173',
     'http://localhost:5174',
+    'https://datt-100de.web.app',
+    'https://datt-100de.firebaseapp.com',
   ];
   const envOrigins = (process.env.CORS_ORIGINS ?? '')
     .split(',')
