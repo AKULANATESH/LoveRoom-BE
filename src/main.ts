@@ -21,8 +21,19 @@ async function bootstrap() {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+  const allowedOrigins = new Set([...defaultOrigins, ...envOrigins]);
+
   app.enableCors({
-    origin: [...new Set([...defaultOrigins, ...envOrigins])],
+    origin: (origin, callback) => {
+      // Allow non-browser clients (no Origin) and allowlisted frontends
+      if (!origin || allowedOrigins.has(origin) || envOrigins.includes('*')) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    },
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   });
   app.use(json({ limit: '12mb' }));
   app.use(urlencoded({ limit: '12mb', extended: true }));
