@@ -11,8 +11,16 @@ async function bootstrap() {
   // Disable Nest's default body parser (100kb limit) so our larger limit
   // applies for base64 snap/photo uploads.
   const app = await NestFactory.create(AppModule, { bodyParser: false });
+  const defaultOrigins = [
+    'http://localhost:5173',
+    'http://localhost:5174',
+  ];
+  const envOrigins = (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
   app.enableCors({
-    origin: ['http://localhost:5173', 'http://localhost:5174'],
+    origin: [...new Set([...defaultOrigins, ...envOrigins])],
   });
   app.use(json({ limit: '12mb' }));
   app.use(urlencoded({ limit: '12mb', extended: true }));

@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: loli-be
+    runtime: node
+    plan: free
+    region: oregon
+    branch: master
+    buildCommand: npm install && npm run build
+    startCommand: npm run db:deploy && npm run start:prod
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: NODE_VERSION
+        value: "20"
