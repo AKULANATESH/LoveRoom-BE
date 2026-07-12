@@ -10,22 +10,36 @@ generator client {
 
 // User model
 model User {
-  id                    String              @id @default(cuid())
+  id                    String               @id @default(cuid())
   name                  String
-  email                 String              @unique
-  username              String              @unique
+  email                 String               @unique
+  username              String               @unique
   passwordHash          String
-  age                   Int                 @default(18)
+  mustChangePassword    Boolean              @default(false)
+  age                   Int                  @default(18)
   avatarUrl             String?
-  createdAt             DateTime            @default(now())
+  createdAt             DateTime             @default(now())
   orders                Order[]
-  relationshipsAsUserA  Relationship[]      @relation("RelationshipUserA")
-  relationshipsAsUserB  Relationship[]      @relation("RelationshipUserB")
+  relationshipsAsUserA  Relationship[]       @relation("RelationshipUserA")
+  relationshipsAsUserB  Relationship[]       @relation("RelationshipUserB")
   moods                 Mood[]
-  sentActions           EmotionalAction[]   @relation("SentActions")
-  receivedActions       EmotionalAction[]   @relation("ReceivedActions")
-  notificationsReceived Notification[]      @relation("NotificationsReceived")
-  sentInvitations       PartnerInvitation[] @relation("SentInvitations")
+  sentActions           EmotionalAction[]    @relation("SentActions")
+  receivedActions       EmotionalAction[]    @relation("ReceivedActions")
+  notificationsReceived Notification[]       @relation("NotificationsReceived")
+  sentInvitations       PartnerInvitation[]  @relation("SentInvitations")
+  passwordResetTokens   PasswordResetToken[]
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model Relationship {

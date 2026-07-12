@@ -4,7 +4,9 @@ import {
   AcceptInvitationDto,
   CreateInvitationDto,
   LoginDto,
+  RegisterCoupleDto,
   RegisterDto,
+  ResetPasswordDto,
 } from './auth.dto';
 import { AuthService } from './auth.service';
 import { CurrentUser, type AuthUserPayload } from './current-user.decorator';
@@ -17,6 +19,16 @@ export class AuthController {
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
+  }
+
+  @Post('register-couple')
+  registerCouple(@Body() dto: RegisterCoupleDto) {
+    return this.authService.registerCouple(dto);
+  }
+
+  @Post('reset-password')
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.authService.resetPassword(dto);
   }
 
   @Post('login')

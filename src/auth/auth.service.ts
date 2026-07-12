@@ -1,19 +1,28 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InvitationStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
+import { MailService } from 'src/mail/mail.service';
 import { PrismaService } from 'src/prisma/prisma.service';
 
-import { AcceptInvitationDto, LoginDto, RegisterDto } from './auth.dto';
+import {
+  AcceptInvitationDto,
+  LoginDto,
+  RegisterCoupleDto,
+  RegisterDto,
+  ResetPasswordDto,
+} from './auth.dto';
 import { AuthUserPayload } from './current-user.decorator';
 
 const BCRYPT_ROUNDS = 10;
+const RESET_TOKEN_TTL_MS = 72 * 60 * 60 * 1000;
 
 export interface AuthResponse {
   accessToken: string;
@@ -33,6 +42,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly mailService: MailService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponse> {
@@ -63,9 +73,144 @@ export class AuthService {
     return this.buildAuthResponse(user.id);
   }
 
+  async registerCouple(dto: RegisterCoupleDto): Promise<AuthResponse> {
+    const email = dto.email.trim().toLowerCase();
+    const partnerEmail = dto.partnerEmail.trim().toLowerCase();
+
+    if (email === partnerEmail) {
+      throw new BadRequestException('Partner email must be different from yours');
+    }
+
+    const [existingEmail, existingPartnerEmail, existingUsername] =
+      await Promise.all([
+        this.prisma.user.findUnique({ where: { email } }),
+        this.prisma.user.findUnique({ where: { email: partnerEmail } }),
+        this.prisma.user.findUnique({ where: { username: dto.username } }),
+      ]);
+
+    if (existingEmail) {
+      throw new ConflictException('An account with your email already exists');
+    }
+    if (existingPartnerEmail) {
+      throw new ConflictException(
+        'Your partner already has an account. Ask them to sign in instead.',
+      );
+    }
+    if (existingUsername) {
+      throw new ConflictException('This username is already taken');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+    const partnerName = this.nameFromEmail(partnerEmail);
+    const partnerUsername = await this.generateTempUsername();
+    const rawResetToken = randomBytes(32).toString('hex');
+    const tokenHash = this.hashToken(rawResetToken);
+
+    const { userA, relationship } = await this.prisma.$transaction(
+      async (tx) => {
+        const createdUserA = await tx.user.create({
+          data: {
+            name: dto.name.trim(),
+            email,
+            username: dto.username,
+            passwordHash,
+          },
+        });
+
+        const createdUserB = await tx.user.create({
+          data: {
+            name: partnerName,
+            email: partnerEmail,
+            username: partnerUsername,
+            passwordHash,
+            mustChangePassword: true,
+          },
+        });
+
+        const createdRelationship = await tx.relationship.create({
+          data: {
+            userAId: createdUserA.id,
+            userBId: createdUserB.id,
+            startedAt: new Date(),
+          },
+        });
+
+        await tx.passwordResetToken.create({
+          data: {
+            userId: createdUserB.id,
+            tokenHash,
+            expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
+          },
+        });
+
+        return {
+          userA: createdUserA,
+          relationship: createdRelationship,
+        };
+      },
+    );
+
+    try {
+      await this.mailService.sendPartnerSetupEmail({
+        to: partnerEmail,
+        partnerName: dto.name.trim(),
+        resetToken: rawResetToken,
+      });
+    } catch (error) {
+      // Account + relationship already created; surface a soft warning via logs.
+      // Partner can request a new flow later; creator is still logged in.
+      console.error('Partner setup email failed after couple registration', error);
+    }
+
+    return this.buildAuthResponse(userA.id, relationship.id);
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
+    const tokenHash = this.hashToken(dto.token);
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    });
+
+    if (!resetToken || resetToken.usedAt || resetToken.expiresAt < new Date()) {
+      throw new BadRequestException(
+        'This reset link is invalid or has expired. Ask your partner to create the account again, or contact support.',
+      );
+    }
+
+    const existingUsername = await this.prisma.user.findUnique({
+      where: { username: dto.username },
+    });
+    if (existingUsername && existingUsername.id !== resetToken.userId) {
+      throw new ConflictException('This username is already taken');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: resetToken.userId },
+        data: {
+          username: dto.username,
+          passwordHash,
+          mustChangePassword: false,
+        },
+      });
+
+      await tx.passwordResetToken.update({
+        where: { id: resetToken.id },
+        data: { usedAt: new Date() },
+      });
+    });
+
+    return {
+      message: 'Your username and password are set. You can sign in now.',
+    };
+  }
+
   async login(dto: LoginDto): Promise<AuthResponse> {
     const user = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email: dto.email.trim().toLowerCase() },
     });
     if (!user) {
       throw new UnauthorizedException('Invalid email or password');
@@ -74,6 +219,12 @@ export class AuthService {
     const passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordMatches) {
       throw new UnauthorizedException('Invalid email or password');
+    }
+
+    if (user.mustChangePassword) {
+      throw new ForbiddenException(
+        'Please use the email link to choose your username and set a new password before signing in.',
+      );
     }
 
     return this.buildAuthResponse(user.id);
@@ -237,6 +388,34 @@ export class AuthService {
     });
 
     return this.buildAuthResponse(user.id, relationship.id);
+  }
+
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private nameFromEmail(email: string): string {
+    const local = email.split('@')[0] ?? 'Partner';
+    const cleaned = local.replace(/[^a-zA-Z0-9]/g, ' ').trim();
+    if (!cleaned) {
+      return 'Partner';
+    }
+    return cleaned
+      .split(/\s+/)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ')
+      .slice(0, 80);
+  }
+
+  private async generateTempUsername(): Promise<string> {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const username = `partner_${randomBytes(4).toString('hex')}`;
+      const existing = await this.prisma.user.findUnique({ where: { username } });
+      if (!existing) {
+        return username;
+      }
+    }
+    throw new BadRequestException('Could not create partner username. Please try again.');
   }
 
   private async buildAuthResponse(
