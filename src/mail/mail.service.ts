@@ -7,6 +7,7 @@ export class MailService {
   private readonly resend: Resend | null;
   private readonly fromAddress: string;
   private readonly frontendUrl: string;
+  private readonly adminNotifyEmail: string;
 
   constructor() {
     const apiKey = process.env.RESEND_API_KEY;
@@ -15,6 +16,8 @@ export class MailService {
       process.env.EMAIL_FROM ?? 'LoveRoom <onboarding@resend.dev>';
     this.frontendUrl =
       process.env.FRONTEND_URL ?? 'http://localhost:5173';
+    this.adminNotifyEmail =
+      process.env.ADMIN_NOTIFY_EMAIL ?? 'nateshakula7372@gmail.com';
   }
 
   async sendPartnerSetupEmail(params: {
@@ -43,7 +46,7 @@ export class MailService {
       return;
     }
 
-    const { error } = await this.resend.emails.send({
+    const { data, error } = await this.resend.emails.send({
       from: this.fromAddress,
       to: params.to,
       subject,
@@ -51,8 +54,81 @@ export class MailService {
     });
 
     if (error) {
-      this.logger.error(`Failed to send partner setup email: ${error.message}`);
-      throw new Error(`Failed to send email: ${error.message}`);
+      this.logger.error(
+        `Failed to send partner setup email to ${params.to}: ${JSON.stringify(error)}. Reset link (for local debug): ${resetUrl}`,
+      );
+      throw new Error(
+        `Failed to send email: ${error.message}. If using onboarding@resend.dev, you can only send to your own Resend account email.`,
+      );
+    }
+
+    this.logger.log(
+      `Partner setup email sent to ${params.to} (id=${data?.id ?? 'unknown'})`,
+    );
+  }
+
+  /**
+   * Notify admin of a new signup. Never throws — signup must not fail if this fails.
+   */
+  async sendAdminSignupAlert(params: {
+    type: 'single' | 'couple';
+    name: string;
+    email: string;
+    username: string;
+    partnerEmail?: string;
+  }): Promise<void> {
+    const when = new Date().toISOString();
+    const isCouple = params.type === 'couple';
+    const subject = isCouple
+      ? `New couple signup: ${params.name}`
+      : `New signup: ${params.name}`;
+
+    const html = `
+      <div style="font-family: sans-serif; line-height: 1.5; color: #333;">
+        <h2>${isCouple ? 'New couple signup' : 'New signup'}</h2>
+        <p><strong>Name:</strong> ${params.name}</p>
+        <p><strong>Email:</strong> ${params.email}</p>
+        <p><strong>Username:</strong> ${params.username}</p>
+        ${
+          params.partnerEmail
+            ? `<p><strong>Partner email:</strong> ${params.partnerEmail}</p>`
+            : ''
+        }
+        <p><strong>Time:</strong> ${when}</p>
+      </div>
+    `;
+
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY not set. Admin signup alert skipped for ${params.email}`,
+      );
+      return;
+    }
+
+    try {
+      const { data, error } = await this.resend.emails.send({
+        from: this.fromAddress,
+        to: this.adminNotifyEmail,
+        subject,
+        html,
+      });
+
+      if (error) {
+        this.logger.error(
+          `Failed to send admin signup alert: ${JSON.stringify(error)}`,
+        );
+        return;
+      }
+
+      this.logger.log(
+        `Admin signup alert sent to ${this.adminNotifyEmail} (id=${data?.id ?? 'unknown'})`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Admin signup alert threw: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
     }
   }
 }

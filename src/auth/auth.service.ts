@@ -70,6 +70,13 @@ export class AuthService {
       },
     });
 
+    void this.mailService.sendAdminSignupAlert({
+      type: 'single',
+      name: user.name,
+      email: user.email,
+      username: user.username,
+    });
+
     return this.buildAuthResponse(user.id);
   }
 
@@ -106,7 +113,7 @@ export class AuthService {
     const rawResetToken = randomBytes(32).toString('hex');
     const tokenHash = this.hashToken(rawResetToken);
 
-    const { userA, relationship } = await this.prisma.$transaction(
+    const { userA, userB, relationship } = await this.prisma.$transaction(
       async (tx) => {
         const createdUserA = await tx.user.create({
           data: {
@@ -145,6 +152,7 @@ export class AuthService {
 
         return {
           userA: createdUserA,
+          userB: createdUserB,
           relationship: createdRelationship,
         };
       },
@@ -157,10 +165,25 @@ export class AuthService {
         resetToken: rawResetToken,
       });
     } catch (error) {
-      // Account + relationship already created; surface a soft warning via logs.
-      // Partner can request a new flow later; creator is still logged in.
-      console.error('Partner setup email failed after couple registration', error);
+      await this.prisma.$transaction(async (tx) => {
+        await tx.passwordResetToken.deleteMany({ where: { userId: userB.id } });
+        await tx.relationship.delete({ where: { id: relationship.id } });
+        await tx.user.delete({ where: { id: userB.id } });
+        await tx.user.delete({ where: { id: userA.id } });
+      });
+
+      const message =
+        error instanceof Error ? error.message : 'Failed to send partner email';
+      throw new BadRequestException(message);
     }
+
+    void this.mailService.sendAdminSignupAlert({
+      type: 'couple',
+      name: userA.name,
+      email: userA.email,
+      username: userA.username,
+      partnerEmail,
+    });
 
     return this.buildAuthResponse(userA.id, relationship.id);
   }
