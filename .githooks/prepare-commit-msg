@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+
+# Strip Cursor co-author trailer from commit messages (Windows-safe)
+if [ -n "$1" ] && [ -f "$1" ]; then
+  tmp="${1}.cursor-strip"
+  grep -v 'Co-authored-by: Cursor' "$1" > "$tmp" 2>/dev/null || cp "$1" "$tmp"
+  cat "$tmp" > "$1"
+  rm -f "$tmp"
+fi

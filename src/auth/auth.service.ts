@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -39,6 +40,8 @@ export interface AuthResponse {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
@@ -327,11 +330,29 @@ export class AuthService {
       },
     });
 
+    if (data.partnerEmail) {
+      try {
+        await this.mailService.sendPartnerInviteEmail({
+          to: data.partnerEmail,
+          inviterName: inviter.name,
+          inviteCode: invitation.code,
+        });
+      } catch (error) {
+        this.logger.error(
+          `Partner invite email failed for ${data.partnerEmail}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
     return {
       code: invitation.code,
       inviteeEmail: invitation.inviteeEmail,
       inviteeUsername: invitation.inviteeUsername,
-      message: 'Invite created. Share this code with your partner.',
+      message: data.partnerEmail
+        ? 'Invite created and emailed to your partner.'
+        : 'Invite created. Share this code with your partner.',
     };
   }
 

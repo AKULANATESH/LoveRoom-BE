@@ -67,6 +67,51 @@ export class MailService {
     );
   }
 
+  async sendPartnerInviteEmail(params: {
+    to: string;
+    inviterName: string;
+    inviteCode: string;
+  }): Promise<void> {
+    const joinUrl = `${this.frontendUrl.replace(/\/$/, '')}/join/${encodeURIComponent(params.inviteCode)}`;
+
+    const subject = `${params.inviterName} invited you to LoveRoom`;
+    const html = `
+      <div style="font-family: sans-serif; line-height: 1.5; color: #333;">
+        <h2>You're invited to LoveRoom</h2>
+        <p><strong>${params.inviterName}</strong> wants to share a private space with you on LoveRoom.</p>
+        <p>Your invite code: <strong>${params.inviteCode}</strong></p>
+        <p><a href="${joinUrl}" style="display:inline-block;padding:12px 20px;background:#E91E63;color:#fff;text-decoration:none;border-radius:8px;">Accept invite</a></p>
+        <p style="font-size: 13px; color: #666;">Or open this link:<br/>${joinUrl}</p>
+        <p style="font-size: 13px; color: #666;">Create an account with this email, then accept the invite.</p>
+      </div>
+    `;
+
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY not set. Partner invite link for ${params.to}: ${joinUrl}`,
+      );
+      return;
+    }
+
+    const { data, error } = await this.resend.emails.send({
+      from: this.fromAddress,
+      to: params.to,
+      subject,
+      html,
+    });
+
+    if (error) {
+      this.logger.error(
+        `Failed to send partner invite email to ${params.to}: ${JSON.stringify(error)}. Join link (for local debug): ${joinUrl}`,
+      );
+      throw new Error(`Failed to send email: ${error.message}`);
+    }
+
+    this.logger.log(
+      `Partner invite email sent to ${params.to} (id=${data?.id ?? 'unknown'})`,
+    );
+  }
+
   /**
    * Notify admin of a new signup. Never throws — signup must not fail if this fails.
    */
