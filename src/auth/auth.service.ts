@@ -49,8 +49,10 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponse> {
+    const email = dto.email.trim().toLowerCase();
+
     const existingEmail = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+      where: { email },
     });
     if (existingEmail) {
       throw new ConflictException('An account with this email already exists');
@@ -66,8 +68,8 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     const user = await this.prisma.user.create({
       data: {
-        name: dto.name,
-        email: dto.email,
+        name: dto.name.trim(),
+        email,
         username: dto.username,
         passwordHash,
       },
@@ -270,6 +272,8 @@ export class AuthService {
       );
     }
 
+    const partnerEmail = data.partnerEmail?.trim().toLowerCase();
+
     const inviter = await this.prisma.user.findUniqueOrThrow({
       where: { id: authUser.userId },
     });
@@ -294,9 +298,9 @@ export class AuthService {
       };
     }
 
-    if (data.partnerEmail) {
+    if (partnerEmail) {
       const existingPartner = await this.prisma.user.findUnique({
-        where: { email: data.partnerEmail },
+        where: { email: partnerEmail },
       });
       if (existingPartner) {
         const partnerRelationship = await this.findUserRelationship(existingPartner.id);
@@ -323,23 +327,23 @@ export class AuthService {
       data: {
         inviterId: inviter.id,
         inviterEmail: inviter.email,
-        inviteeEmail: data.partnerEmail,
+        inviteeEmail: partnerEmail,
         inviteeUsername: data.partnerUsername,
         code,
         token: randomBytes(24).toString('hex'),
       },
     });
 
-    if (data.partnerEmail) {
+    if (partnerEmail) {
       try {
         await this.mailService.sendPartnerInviteEmail({
-          to: data.partnerEmail,
+          to: partnerEmail,
           inviterName: inviter.name,
           inviteCode: invitation.code,
         });
       } catch (error) {
         this.logger.error(
-          `Partner invite email failed for ${data.partnerEmail}: ${
+          `Partner invite email failed for ${partnerEmail}: ${
             error instanceof Error ? error.message : String(error)
           }`,
         );
@@ -350,7 +354,7 @@ export class AuthService {
       code: invitation.code,
       inviteeEmail: invitation.inviteeEmail,
       inviteeUsername: invitation.inviteeUsername,
-      message: data.partnerEmail
+      message: partnerEmail
         ? 'Invite created and emailed to your partner.'
         : 'Invite created. Share this code with your partner.',
     };
@@ -397,7 +401,10 @@ export class AuthService {
       throw new BadRequestException('You cannot accept your own invite');
     }
 
-    if (invitation.inviteeEmail && invitation.inviteeEmail !== user.email) {
+    if (
+      invitation.inviteeEmail &&
+      invitation.inviteeEmail.toLowerCase() !== user.email.toLowerCase()
+    ) {
       throw new BadRequestException('This invite was sent to a different email address');
     }
 
